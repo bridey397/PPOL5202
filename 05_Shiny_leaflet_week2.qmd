@@ -1,0 +1,204 @@
+---
+title: "Shiny: Week two (leaflet)"
+format:
+  html:
+    embed-resources: true
+editor: visual
+execute: 
+  warning: false
+  message: false
+---
+
+# Activity 1: outside of an app, create a leaflet map of DC liquor licenses
+
+-   Read in the `Liquor_Licenses.geojson` file
+-   Create a map where you use:
+-   OpenStreetMap as the background tile
+-   Circle marker to indicate each location of a license
+-   Use the `clusterOptions = markerClusterOptions()` to cluster together locations of a high density of markers
+-   Add a label to each point using the `TRADE_NAME` and `TYPE` columns
+
+```{r}
+
+library(tidyverse)
+library(shiny)
+library(here)
+library(leaflet)
+library(sf)
+library(htmltools)
+library(here)
+library(leaflet)
+library(leaflet.extras)
+
+
+# read in liquor licenses file
+liquor_licenses <- sf::st_read(here("Liquor_Licenses.geojson")) %>%
+      sf::st_transform(crs = 4326)
+
+liquor_licenses$long = st_coordinates(liquor_licenses)[,1]
+
+liquor_licenses$lat = st_coordinates(liquor_licenses)[,2]
+
+head(liquor_licenses)
+# create basemap
+
+basemap <- leaflet() %>%
+    addProviderTiles("OpenStreetMap",
+                     group = "OpenStreetMap") %>%
+  addCircleMarkers(data = liquor_licenses, lat = ~lat, lng = ~long, 
+                   color = 'darkgreen', 
+                   radius = 2, 
+                   clusterOptions = markerClusterOptions(),
+                   label = sprintf("Establishment: %s <br>Type of Location: %s",
+                                   liquor_licenses$TRADE_NAME,
+                                   liquor_licenses$TYPE) %>%
+                     lapply(htmltools::HTML)
+                   )
+
+basemap
+
+
+
+```
+
+# Activity 2: put that code in a Shiny app + add filtering option
+
+-   Embed the above map in a Shiny app
+-   Use the `selectInput` widget to allow users to filter the points by 1 or more types of establishments
+-   When doing the filtering, create a `reactive` object on the server side that stores the filtered output
+
+```{r}
+
+
+
+ui <- fluidPage(
+  # Application title
+  titlePanel("Map of Liquor Licenses in DC"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput(inputId= "input_type",
+                  label = "Type of establishment:",
+                  choices = sort(unique(liquor_licenses$TYPE)),
+                  selected = "Beer and Wine",
+                  multiple = TRUE)
+    ),
+    mainPanel(
+      # Leaflet output
+      leafletOutput("map")
+    )
+  )
+
+)
+
+# Define server logic required to draw a histogram
+server <- function(input, output) {
+  
+  d <- reactive({
+    liquor_licenses %>%
+      filter(TYPE %in% input$input_type)
+    
+  })
+
+  output$map <- renderLeaflet({
+    leaflet() %>%
+      addProviderTiles("OpenStreetMap",
+                       group = "OpenStreetMap")  %>%
+      addCircleMarkers(data = d(), lat = ~lat,
+                       lng = ~long,
+                       label = sprintf("Name: %s<br>Type of Establishment: %s",
+                                       d()$TRADE_NAME,
+                                       d()$TYPE) %>%
+                         lapply(htmltools::HTML),
+                       color = 'darkgreen', radius = 2) 
+  })
+  
+ 
+
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
+
+
+```
+
+# Activity 3: modify the Shiny app to have one tab with the map, another with data to download
+
+Create a two-tab app:
+
+-   The first tab should contain the map
+-   The second tab should contain a button to download a csv file reflecting the selected establishment types
+
+
+```{r}
+
+
+
+ui <- fluidPage(
+  # Application title
+  titlePanel("Map of Liquor Licenses in DC"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput(inputId= "input_type",
+                  label = "Type of establishment:",
+                  choices = sort(unique(liquor_licenses$TYPE)),
+                  selected = "Beer and Wine",
+                  multiple = TRUE)
+    ),
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Map", leafletOutput("map"), tableOutput("selected_locations")),
+        tabPanel("Download Locations", downloadButton("csv_download", "Download the locations"))
+      )
+      
+    )
+  )
+
+)
+
+# Define server logic required to draw a histogram
+server <- function(input, output) {
+  
+  d <- reactive({
+    liquor_licenses %>%
+      filter(TYPE %in% input$input_type)
+    
+  })
+
+  output$map <- renderLeaflet({
+    leaflet() %>%
+      addProviderTiles("OpenStreetMap",
+                       group = "OpenStreetMap")  %>%
+      addCircleMarkers(data = d(), lat = ~lat,
+                       lng = ~long,
+                       label = sprintf("Name: %s<br>Type of Establishment: %s",
+                                       d()$TRADE_NAME,
+                                       d()$TYPE) %>%
+                         lapply(htmltools::HTML),
+                       color = 'darkgreen', radius = 2) 
+  })
+  
+ output$csv_download <- downloadHandler(
+    filename = function(){paste("licenses-filtered-", 
+                                Sys.time(),
+                                ".csv", sep = "")},
+    content = function(file){
+      write.csv(d(), file)
+    }
+  )
+ 
+ output$selected_locations <- renderTable({
+       liquor_licenses %>%
+      filter(TYPE %in% input$input_type) %>%
+     select(TRADE_NAME, TYPE, WARD)
+ })
+  
+ 
+
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
+
+
+```
